@@ -5,7 +5,7 @@
 
 ---
 
-## 1. Idea del Proyecto
+## Idea del Proyecto
 
 La supervisión de satélites en órbita depende de flujos continuos de datos provenientes de múltiples sensores (temperaturas, corrientes, voltajes). El método convencional de control utiliza límites fijos (*out-of-limits*), pero resulta insuficiente ante fallas sutiles que ocurren dentro del rango normal de operación, o ante situaciones donde un valor solo es anómalo según el contexto temporal y multivariado de la nave.
 
@@ -15,7 +15,7 @@ Para validar el sistema se utiliza el **ESA Anomaly Dataset** (telemetría real 
 
 ---
 
-## 2. Flujo Metodológico
+## Flujo Metodológico
 
 1. **Preprocesamiento y ventanas temporales:** Limpieza, normalización y generación de secuencias temporales para alimentar modelos secuenciales.
 2. **Aprendizaje de la normalidad (Red Dinámica / LSTM):** Entrenamiento de una red recurrente únicamente sobre períodos nominales para capturar la dinámica temporal habitual.
@@ -24,12 +24,3 @@ Para validar el sistema se utiliza el **ESA Anomaly Dataset** (telemetría real 
 5. **Visualización de estados con SOM (2D):** Mapeo topológico mediante una red de Kohonen para agrupar estados normales y visualizar la dispersión hacia regiones periféricas ante condiciones de falla.
 6. **Evaluación de resultados:** Contraste de las alarmas detectadas contra los eventos catalogados por ingenieros de vuelo en `labels.csv` (matriz de confusión, precisión, sensibilidad y F1-score).
 
----
-
-## 3. Articulación con la Materia
-
-El proyecto integra de forma práctica ejes centrales vistos en la cursada:
-
-* **Redes Neuronales Dinámicas y Recurrentes:** Aplicación de arquitecturas secuenciales (LSTM / RNN) para el modelado temporal de series continuas y retención de dependencias temporales pasadas.
-* **Mapas Auto-organizativos (SOM de Kohonen):** Uso de aprendizaje no supervisado competitivo para preservación topológica, reducción de dimensionalidad y diagnóstico visual interpretable del estado de la nave.
-* **Evaluación de Modelos:** Manejo riguroso de datos con fuerte desbalance de clases (donde la operación normal representa la enorme mayoría de las muestras) mediante métricas adecuadas para detección de fallas.
