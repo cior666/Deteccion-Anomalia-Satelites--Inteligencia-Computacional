@@ -1,90 +1,35 @@
 # Detección de Anomalías en Telemetría Satelital mediante Inteligencia Computacional
 
-**Trabajo Final - Inteligencia Computacional (4.° Año)**  
+**Trabajo Final - Inteligencia Computacional**  
 **Integrantes:** Agustín Barbero, Conrado Ciorciari  
 
 ---
 
-## 🛰️ 1. Definición del Problema y Motivación
+## 1. Idea del Proyecto
 
-La supervisión de satélites en órbita depende de flujos continuos de telemetría (temperaturas, voltajes, corrientes, presiones). Tradicionalmente, los centros de control utilizan umbrales estáticos prefijados (*Out-of-Limits* u OOL) para alertar desvíos.
+La supervisión de satélites en órbita depende de flujos continuos de datos provenientes de múltiples sensores (temperaturas, corrientes, voltajes). El método convencional de control utiliza límites fijos (*out-of-limits*), pero resulta insuficiente ante fallas sutiles que ocurren dentro del rango normal de operación, o ante situaciones donde un valor solo es anómalo según el contexto temporal y multivariado de la nave.
 
-Sin embargo, este enfoque presenta limitaciones operativas críticas:
-1. **Anomalías dentro de rango:** La mayoría de las fallas incipientes no superan los límites absolutos (e.g., congelamiento de señal, ruido de alta frecuencia o derivas lentas).
-2. **Dependencias multivariadas y contexto:** Valores normales bajo ciertas condiciones (e.g., baja corriente de paneles solares durante un eclipse) son anómalos bajo otras (luz solar directa).
-3. **Escala temporal masiva:** Años de misión continua vuelven inviable la inspección manual continua.
+La propuesta consiste en desarrollar un sistema de detección temprana de anomalías utilizando un enfoque semi-supervisado. El modelo aprende la dinámica normal de vuelo del satélite durante períodos sin fallas. Cuando ocurre una degradación o rotura de componentes, el sistema detecta que la señal real se aparta del comportamiento predicho y emite una alerta, complementando la detección con una proyección bidimensional para inspeccionar visualmente el estado del subsistema.
 
-### Objetivo
-Desarrollar un sistema de detección temprana de anomalías en telemetría satelital mediante **aprendizaje semi-supervisado**. El modelo aprende la dinámica normal de vuelo y alerta ante desvíos imprevistos, combinando predicción temporal con proyección bidimensional para diagnóstico visual.
+Para validar el sistema se utiliza el **ESA Anomaly Dataset** (telemetría real de misiones de la Agencia Espacial Europea), focalizando el análisis en un subsistema crítico (Subsistema 5, `channel_41` como variable objetivo, junto a canales correlacionados de soporte y contexto global).
 
 ---
 
-## 📊 2. Dataset: ESA Anomaly Benchmark (Misión 1)
+## 2. Flujo Metodológico
 
-Se utiliza el **ESA Anomaly Dataset** (Agencia Espacial Europea, Airbus Defence and Space y KP Labs), que contiene telemetría real de vuelo (2000–2013) con muestreos cada ~90 segundos y fallas certificadas por ingenieros de vuelo en `labels.csv`.
-
-### Subconjunto Seleccionado
-Para garantizar viabilidad computacional y rigor experimental, el estudio se enfoca en el **Subsistema 5 (Grupo funcional 8)** en el intervalo **2004–2005**:
-* **Canal Objetivo Principal (Target):** `channel_41` (cuenta con más de 200 anomalías reales documentadas).
-* **Canales de Soporte Multivariado:** `channel_42` y `channel_43` (mismo subsistema físico y dinámica correlacionada).
-* **Canal de Contexto Global:** `channel_1` (monitoreo del estado general de la nave / bus principal).
-
----
-
-## 🛠️ 3. Metodología Paso a Paso
-
-El pipeline se estructura en 6 etapas secuenciales:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ PASO 1: Preprocesamiento y Ventanas Deslizantes              │
-│ - Normalización y partición cronológica (Train/Val/Test)     │
-│ - Creación de secuencias [t-L ... t-1] -> [t] (L = 50)       │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────┐
-│ PASO 2: Aprendizaje de la Normalidad (LSTM)                  │
-│ - Entrenamiento en régimen sano minimizando error MSE        │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────┐
-│ PASO 3: Predicción y Cálculo del Error                       │
-│ - Predicción paso a paso sobre datos de prueba               │
-│ - Señal de error residual instantáneo: e(t) = |y(t) - ŷ(t)|  │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────┐
-│ PASO 4: Filtrado del Error y Criterio de Detección           │
-│ - Suavizado de ruido de alta frecuencia mediante EWMA        │
-│ - Umbral estadístico de decisión: Umbral = μ₀ + k·σ₀         │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────┐
-│ PASO 5: Visualización de Estados con SOM (2D)                │
-│ - Agrupamiento no supervisado mediante red de Kohonen        │
-│ - Diagnóstico visual de trayectorias (régimen sano vs falla) │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────┐
-│ PASO 6: Validación y Métricas de Desempeño                   │
-│ - Contraste contra eventos etiquetados (labels.csv)          │
-│ - Matriz de confusión, Precisión, Sensibilidad y F1-Score    │
-└──────────────────────────────────────────────────────────────┘
-```
-
-1. **Preprocesamiento:** Escalado $[0, 1]$, partición temporal estricta (entrenamiento sobre período sano, evaluación sobre período con anomalías) y generación de ventanas temporales ($L=50$).
-2. **Modelado Recurrente (LSTM):** Red dinámica que captura dependencias temporales y la física subyacente del satélite en régimen nominal.
-3. **Error Residual:** Cálculo de la discrepancia paso a paso $e_t = |y_t - \hat{y}_t|$. En condiciones normales $e_t \approx 0$; ante una falla la red no puede predecir el comportamiento y el residuo se eleva.
-4. **Filtrado EWMA y Umbral:** Atenuación de picos de ruido instrumental mediante media móvil exponencial ($s_t = \lambda e_t + (1-\lambda)s_{t-1}$) y umbral calibrado $\mu_0 + k\sigma_0$ sobre el período normal.
-5. **Mapeo Topológico (SOM):** Proyección bidimensional de patrones multivariados y residuos para diagnóstico visual del estado operativo de la nave.
-6. **Evaluación Experimental:** Comparación con las marcas temporales reales (`labels.csv`), generando métricas (Precisión, Recall, $F_1$) y gráficos sincronizados.
+1. **Preprocesamiento y ventanas temporales:** Limpieza, normalización y generación de secuencias temporales para alimentar modelos secuenciales.
+2. **Aprendizaje de la normalidad (Red Dinámica / LSTM):** Entrenamiento de una red recurrente únicamente sobre períodos nominales para capturar la dinámica temporal habitual.
+3. **Predicción y cálculo del error residual:** Generación de la predicción un paso hacia adelante y cálculo de la discrepancia instantánea frente a la medición real.
+4. **Filtrado EWMA y umbral estadístico:** Suavizado del error residual mediante una media móvil ponderada exponencialmente para atenuar ruido de alta frecuencia, aplicando un umbral de decisión basado en la dispersión del régimen sano.
+5. **Visualización de estados con SOM (2D):** Mapeo topológico mediante una red de Kohonen para agrupar estados normales y visualizar la dispersión hacia regiones periféricas ante condiciones de falla.
+6. **Evaluación de resultados:** Contraste de las alarmas detectadas contra los eventos catalogados por ingenieros de vuelo en `labels.csv` (matriz de confusión, precisión, sensibilidad y F1-score).
 
 ---
 
-## 📚 4. Bibliografía de Referencia
+## 3. Articulación con la Materia
 
-* **Dataset Oficial:** Kotowski et al. (2024). *European Space Agency Benchmark for Anomaly Detection in Satellite Telemetry (ESA-ADB)*. NeurIPS / [arXiv:2406.17826](https://arxiv.org/abs/2406.17826).
-* **Arquitectura LSTM de Referencia:** Hundman et al. (NASA JPL, 2018). *Detecting Spacecraft Anomalies Using LSTMs and Nonparametric Dynamic Thresholding*. ACM KDD / [arXiv:1802.04431](https://arxiv.org/abs/1802.04431).
-* **Filtrado EWMA y Detección en Streaming:** Carter & Streilein (MIT Lincoln Lab, 2012). *Probabilistic reasoning for streaming anomaly detection*. IEEE SSP / [arXiv:1905.02559](https://arxiv.org/abs/1905.02559).
-* **Mapas Auto-organizativos (SOM):** Kohonen, T. (1990). *The Self-Organizing Map*. Proceedings of the IEEE / [Stanford University](https://web.stanford.edu/class/ee373a/selforganizingmap.pdf).
-* **Métricas en Series Temporales:** Tatbul et al. (Intel Labs / MIT, 2018). *Precision and Recall for Time Series*. [NeurIPS Proceedings](https://proceedings.neurips.cc/paper/2018/file/8f468c873a32bb0619eaeb2050ba45d1-Paper.pdf).
+El proyecto integra de forma práctica ejes centrales vistos en la cursada:
+
+* **Redes Neuronales Dinámicas y Recurrentes:** Aplicación de arquitecturas secuenciales (LSTM / RNN) para el modelado temporal de series continuas y retención de dependencias temporales pasadas.
+* **Mapas Auto-organizativos (SOM de Kohonen):** Uso de aprendizaje no supervisado competitivo para preservación topológica, reducción de dimensionalidad y diagnóstico visual interpretable del estado de la nave.
+* **Evaluación de Modelos:** Manejo riguroso de datos con fuerte desbalance de clases (donde la operación normal representa la enorme mayoría de las muestras) mediante métricas adecuadas para detección de fallas.
