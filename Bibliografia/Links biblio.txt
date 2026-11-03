@@ -1,0 +1,17 @@
+https://www.kaggle.com/datasets/patrickfleith/nasa-anomaly-detection-dataset-smap-msl dataset NASA (inspo)
+
+https://arxiv.org/abs/1802.04431 (trabajo nasa inspo)
+
+https://dl.acm.org/doi/10.1145/3219819.3219845 (enfoque inspo)
+
+https://zenodo.org/records/15237121?preview_file=ESA-Mission1.zip Dataset de Agencia Espacial Europea (de donde provienen los datos) 
+
+https://scholar.google.com.py/citations?view_op=view_citation&hl=es&user=RcnJ168AAAAJ&citation_for_view=RcnJ168AAAAJ:3fE2CSJIrl8C Redes RNN aplicadas
+
+https://proceedings.neurips.cc/paper_files/paper/2018/file/8f468c873a32bb0619eaeb2050ba45d1-Paper.pdf metricas de precision y recall por MIT 
+
+https://medium.com/data-science/five-practical-applications-of-the-lstm-model-for-time-series-with-code-a7aac0aa85c0 LSTM con codigo
+
+https://www.researchgate.net/publication/313992620_The_Exponentially_Weighted_Moving_Average EWMA 
+
+
