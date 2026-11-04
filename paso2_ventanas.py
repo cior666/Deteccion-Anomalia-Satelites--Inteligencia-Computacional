@@ -10,11 +10,10 @@ DIR_BASE = os.path.dirname(os.path.abspath(__file__))
 DIR_DATOS = os.path.join(DIR_BASE, "datos_procesados")
 DIR_SALIDA = os.path.join(DIR_DATOS, "ventanas")
 os.makedirs(DIR_SALIDA, exist_ok=True)
-
-CANALES_TARGET = [f"channel_{i}" for i in range(41, 47)]
-CANAL_CONTEXTO = "channel_1"
-CANALES = CANALES_TARGET + [CANAL_CONTEXTO]   # orden de columnas: 6 target + contexto
-N_TARGET = len(CANALES_TARGET)
+canales_objetivo = [f"channel_{i}" for i in range(41, 47)]
+canal_contexto = "channel_1"
+canales = canales_target + [canal_contexto]   # orden de columnas: 6 target + contexto
+numeros_target = len(canales_target)
 
 L = 80   # largo de la historia (se justifica con la autocorrelacion del punto 2:
 # el ciclo dominante dura 33 pasos, asi que 80 pasos ven ~2.4 ciclos completos)
@@ -33,15 +32,15 @@ x = datos.loc[sanas_train, "channel_41"].values[:20000] #se toma una porción de
 x = x - x.mean() #centro la señal en 0
 ac = np.correlate(x, x, mode="full")[len(x) - 1:]
 ac = ac / ac[0]
-MAX_LAG = 300
+cantidad_pasos = 300 # este 300 representa el desplazamiento temp max p buscar la periodicidad
 # El primer pico despues de que la autocorrelacion se vuelve negativa es el periodo
 primer_negativo = int(np.argmax(ac < 0))
-periodo = primer_negativo + int(np.argmax(ac[primer_negativo:MAX_LAG]))
+periodo = primer_negativo + int(np.argmax(ac[primer_negativo:cantidad_pasos]))
 print(f"\n=== 2) Ciclo dominante: {periodo} pasos = {periodo*90/60:.0f} min "
       f"-> L = {L} pasos = {L*90/60:.0f} min ({L/periodo:.1f} ciclos)")
 
 plt.figure(figsize=(10, 3.5))
-plt.plot(ac[:MAX_LAG])
+plt.plot(ac[:cantidad_pasos])
 plt.axvline(periodo, color="red", ls="--", label=f"periodo = {periodo} pasos")
 plt.axvline(L, color="green", ls="--", label=f"L elegido = {L}")
 plt.xlabel("lag (pasos de 90 s)")
@@ -58,10 +57,10 @@ print(f"Guardado: {ruta_fig3}")
 # 3) ESCALADO (ajustado SOLO con filas sanas de Train)
 print("\n=== 3) Escalado ===")
 escalado = {} #diccionario dde guardamos los parametros de cada canal
-matriz = np.empty((len(datos), len(CANALES)), dtype=np.float32)
-for j, c in enumerate(CANALES): #recorremos los canales
+matriz = np.empty((len(datos), len(canales)), dtype=np.float32)
+for j, c in enumerate(canales): #recorremos los canales
     ref = datos.loc[sanas_train, c] #usamos solo las filas de entrenamiento sano del canal
-    if c == CANAL_CONTEXTO:
+    if c == canal_contexto:
         a, b = float(ref.min()), float(ref.max() - ref.min())
         metodo = "minmax" #para el canal 1 usamos min max, porq es un canal q esta fijo la mayor parte del tiempo en un valor cte
     else:
@@ -95,8 +94,8 @@ for nombre, ind in idx.items():
 
 # 5) ARMADO DE TENSORES 3D Y VERIFICACION
 print("\n=== 5) Tensores ===")
-X_train, y_train = armar_ventanas(matriz, idx["train"], L, N_TARGET)
-X_val, y_val = armar_ventanas(matriz, idx["val"], L, N_TARGET)
+X_train, y_train = armar_ventanas(matriz, idx["train"], L, numeros_target)
+X_val, y_val = armar_ventanas(matriz, idx["val"], L, numeros_target)
 
 for nombre, X, y in [("train", X_train, y_train), ("val", X_val, y_val)]:
     print(f"X_{nombre}.shape = {X.shape}  (muestras, L, canales) | "
@@ -108,7 +107,7 @@ assert not np.isnan(X_train).any() and not np.isnan(X_val).any(), "Hay NaN en X"
 i, t = 1234, idx["train"][1234]
 assert np.allclose(X_train[i, -1], matriz[t - 1]), "La ultima fila de X no es t-1"
 assert np.allclose(X_train[i, 0], matriz[t - L]), "La primera fila de X no es t-L"
-assert np.allclose(y_train[i], matriz[t, :N_TARGET]), "y no es la fila t (target)"
+assert np.allclose(y_train[i], matriz[t, :numeros_target]), "y no es la fila t (target)"
 print("Chequeos OK: sin NaN, X = filas [t-L, t-1], y = fila t de los 6 target")
 
 # Guardado de tensores de entrenamiento y validacion
@@ -119,9 +118,9 @@ np.save(os.path.join(DIR_SALIDA, "y_val.npy"), y_val)
 print(f"(Test: {len(idx['test']):,} ventanas, se armaran por lotes en la Etapa 4)")
 
 # 6) GRAFICO: ¿QUE VE LA RED EN UNA MUESTRA?
-fig, axes = plt.subplots(len(CANALES), 1, figsize=(12, 11), sharex=True)
+fig, axes = plt.subplots(len(canales), 1, figsize=(12, 11), sharex=True)
 pasos = np.arange(-L, 0)
-for j, (ax, c) in enumerate(zip(axes, CANALES)):
+for j, (ax, c) in enumerate(zip(axes, canales)):
     ax.plot(pasos, X_train[i, :, j], ".-", ms=3, label="entrada X (historia)")
     if j < N_TARGET:
         ax.plot(0, y_train[i, j], "r*", ms=12, label="salida y (a predecir)")
@@ -139,7 +138,7 @@ print(f"Guardado: {ruta_fig4}")
 
 # 7) GUARDADO DE CONFIGURACION
 np.save(os.path.join(DIR_SALIDA, "matriz_escalada.npy"), matriz)
-config = {"L": L, "canales": CANALES, "canales_target": CANALES_TARGET,
+config = {"L": L, "canales": canales, "canales_target": canales_objetivo,
           "periodo_ciclo_pasos": periodo, "escalado": escalado}
 with open(os.path.join(DIR_SALIDA, "config_ventanas.json"), "w") as f:
     json.dump(config, f, indent=2)
