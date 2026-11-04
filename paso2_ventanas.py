@@ -12,8 +12,8 @@ DIR_SALIDA = os.path.join(DIR_DATOS, "ventanas")
 os.makedirs(DIR_SALIDA, exist_ok=True)
 canales_objetivo = [f"channel_{i}" for i in range(41, 47)]
 canal_contexto = "channel_1"
-canales = canales_target + [canal_contexto]   # orden de columnas: 6 target + contexto
-numeros_target = len(canales_target)
+canales = canales_objetivo + [canal_contexto]   # orden de columnas: 6 target + contexto
+numeros_target = len(canales_objetivo)
 
 L = 80   # largo de la historia (se justifica con la autocorrelacion del punto 2:
 # el ciclo dominante dura 33 pasos, asi que 80 pasos ven ~2.4 ciclos completos)
@@ -122,7 +122,7 @@ fig, axes = plt.subplots(len(canales), 1, figsize=(12, 11), sharex=True)
 pasos = np.arange(-L, 0)
 for j, (ax, c) in enumerate(zip(axes, canales)):
     ax.plot(pasos, X_train[i, :, j], ".-", ms=3, label="entrada X (historia)")
-    if j < N_TARGET:
+    if j < numeros_target:
         ax.plot(0, y_train[i, j], "r*", ms=12, label="salida y (a predecir)")
     ax.set_ylabel(c.replace("channel_", "ch"), rotation=0, labelpad=20)
     ax.grid(alpha=0.3)
