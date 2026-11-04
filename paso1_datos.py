@@ -2,96 +2,99 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+# 0) configuracion y rutas principales
 DIR_BASE = os.path.dirname(os.path.abspath(__file__))
 DIR_DATOS = os.path.join(DIR_BASE, "Datos")
 DIR_SALIDA = os.path.join(DIR_BASE, "datos_procesados")
 os.makedirs(DIR_SALIDA, exist_ok=True)
-canales_objetivo = [f"channel_{i}" for i in range(41, 47)]  # los 6 del subsistema a predecir
-canal_contexto = "channel_1" # canal de contexto global
-canales=canales_objetivo + [canal_contexto] # 7 canales de entrada
-fecha_inicio = "2004-01-01"
-fecha_fin = "2006-01-01"   # excluyente: abarca 2004 y 2005 completos
-paso = "90s"               # resolucion temporal comun
-maximo_relleno = 10           # maximo de pasos (10 x 90s = 15 min) para ffill
-# Particion cronologica
-fecha_fin_train = "2004-06-15"   # Train: 2004-01-01 -> 2004-06-15
-fecha_fin_validacion = "2004-08-01"     # Val:   2004-06-15 -> 2004-08-01
-# Test:  2004-08-01 -> 2005-12-31
 
-# 1) LECTURA DE LOS CANALES
+canales_objetivo = [f"channel_{i}" for i in range(41, 47)]  # los 6 canales del subsistema 5 a predecir
+canal_contexto = "channel_1"  # canal de contexto operativo global
+canales = canales_objetivo + [canal_contexto]  # los 7 canales de entrada del modelo
+
+fecha_inicio = "2004-01-01"
+fecha_fin = "2006-01-01"  # excluyente: abarca los periodos 2004 y 2005 completos
+paso = "90s"  # resolucion temporal uniforme
+maximo_relleno = 10  # limite maximo de pasos (10 x 90s = 15 min) p aplicar ffill
+
+# particion cronologica estricta
+fecha_fin_train = "2004-06-15"  # train: 2004-01-01 -> 2004-06-15
+fecha_fin_validacion = "2004-08-01"  # val: 2004-06-15 -> 2004-08-01
+# test: 2004-08-01 -> 2005-12-31
+
+# 1) lectura de los canales individuales
 def leer_canal(nombre):
     ruta = os.path.join(DIR_DATOS, nombre)
     df = pd.read_pickle(ruta)
-    serie = df[nombre].loc[fecha_inicio:fecha_fin] #se extrae la col. del sensor como series de pandas (col indexada al tiempo)
-    #uso .loc para recortar el rango temporal q quiero analziar
-    serie = serie[serie.index < fecha_fin] #filtro para quedarme solo hasta fecha fin q defini mas arriba
+    # extraemos la columna del sensor como serie temporal indexada por fecha
+    serie = df[nombre].loc[fecha_inicio:fecha_fin]
+    # filtramos p asegurar q no supere la fecha de fin definida
+    serie = serie[serie.index < fecha_fin]
     return serie
 
 def describir_muestreo(serie):
+    # calcula el intervalo temporal tipico y el salto temporal maximo de la serie
     dt = serie.index.to_series().diff().dt.total_seconds().dropna()
     return dt.median(), dt.max()
 
 print("=== 1) Lectura de canales (2004-2005) ===")
-series = {} #hacemos una dicc para guardar las series y q dsp queden los canales con sus nombres como clave
+series = {}  # diccionario p almacenar las series individuales leidas
 for c in canales:
     s = leer_canal(c)
     mediana_dt, max_dt = describir_muestreo(s)
     print(f"{c:>11}: {len(s):>9,} mediciones | paso tipico {mediana_dt:5.1f}s | "
-          f"hueco maximo {max_dt/3600:6.2f} h | rango [{s.min():.3f}, {s.max():.3f}]") #para mi lo sacamos a la pija
+          f"hueco maximo {max_dt/3600:6.2f} h | rango [{s.min():.3f}, {s.max():.3f}]")
     series[c] = s
 
-# 2) ALINEACION EN GRILLA COMUN DE 90 SEGUNDOS
-print(f"\n=== 2) Alineacion a grilla de {paso} ===")
-grilla = pd.date_range(fecha_inicio ,fecha_fin, freq=paso, inclusive="left") #armo la secuencia de fecha y horas 
-#de manera regular osea con el paso q defini antes 90seg entre las fechas q nos interesan
-columnas = {} #armo diccionario tb con las col alineadas antes de armar la tabla final
+# 2) alineacion en grilla temporal comun de 90 segundos
+grilla = pd.date_range(fecha_inicio, fecha_fin, freq=paso, inclusive="left")
+columnas = {}
 for c in canales:
-    columnas[c] = series[c].resample(paso, origin=fecha_inicio).mean().reindex(grilla) # divido toda la linea de tiempo 
-    #en ventanas de 90seg, calculo el promedio de los valores dentro de cada ventana y relleno los huecos con eso.
-    #dsp se hace  el reindex para alinearlo con la grilla q acabamos de definir
-datos = pd.DataFrame(columnas, index=grilla) #construyo el df 
+    # promediamos las mediciones dentro de cada ventana regular de 90s y reindexamos a la grilla comun
+    columnas[c] = series[c].resample(paso, origin=fecha_inicio).mean().reindex(grilla)
+
+datos = pd.DataFrame(columnas, index=grilla)
 datos.index.name = "datetime"
 del series
-print(f"grilla: {len(datos):,} instantes x {datos.shape[1]} canales")
-print("faltantes antes del relleno (% de instantes):")
-print((datos.isna().mean() * 100).round(2).to_string())
 
-# completado de datos con el max de relleno q definimos antes
+# 3) tratamiento de huecos con ffill acotado
+# rellenamos faltantes breves hasta 15 min; los huecos mayores quedan marcados como invalidos
 datos = datos.ffill(limit=maximo_relleno)
 datos["hueco"] = datos[canales].isna().any(axis=1)
-print(f"\nTras ffill (max {maximo_relleno} pasos): {datos['hueco'].mean()*100:.2f}% "f"de instantes siguen con algun canal faltante quedan representados por el nombre hueco")
+pct_hueco = datos["hueco"].mean() * 100
+print(f"\nTras ffill (max {maximo_relleno} pasos): {pct_hueco:.2f}% de instantes con huecos residuales")
 
-# 4) CRUCE CON labels.csv (GROUND TRUTH)
+# 4) cruce con etiquetas reales (ground truth)
 print("\n=== 4) Cruce con etiquetas ===")
-labels = pd.read_csv(os.path.join(DIR_DATOS, "labels.csv"),parse_dates=["StartTime", "EndTime"]) #leo el labels y convierto a fecha y hora
-tipos = pd.read_csv(os.path.join(DIR_DATOS, "anomaly_types.csv")) #leo y esto contiene el tipo de evento asociado a un id
-labels = labels.merge(tipos[["ID", "Category"]], on="ID", how="left") #aca le hago un join por id para saber que tipo de evento es
+labels = pd.read_csv(os.path.join(DIR_DATOS, "labels.csv"), parse_dates=["StartTime", "EndTime"])
+tipos = pd.read_csv(os.path.join(DIR_DATOS, "anomaly_types.csv"))
+labels = labels.merge(tipos[["ID", "Category"]], on="ID", how="left")
 
-#a las fechas hay q sacarle la zona horaria porq no tienen zona horaria asociada y si se la dejo me tira error al comparar
+# removemos la zona horaria p evitar desajustes al comparar timestamps de pandas
 labels["StartTime"] = labels["StartTime"].dt.tz_localize(None)
 labels["EndTime"] = labels["EndTime"].dt.tz_localize(None)
 
-# filtramos los 6 canales en el periodo de estudio
-#nos quedamos solo con los eventos que afectan a nuestros canales y dentro de nuestro periodo de estudio
+# filtramos los eventos q afectan a los canales objetivo dentro del periodo de analisis
 eventos = labels[
     labels["Channel"].isin(canales_objetivo)
     & (labels["StartTime"] < fecha_fin)
     & (labels["EndTime"] >= fecha_inicio)
 ].copy()
 
-# hacemos las etiqueteas booleanas canal x canal
+# construimos banderas booleanas de falla canal por canal
 for c in canales_objetivo:
     col = "etiq_" + c.split("_")[1]
-    datos[col] = False #ponemos todo en false al ppio
+    datos[col] = False
     for _, ev in eventos[eventos["Channel"] == c].iterrows():
-        ini = ev["StartTime"].floor(paso) #redondea para abajo al paso q definimos
-        fin = ev["EndTime"].floor(paso) #lo mismo
-        datos.loc[ini:fin, col] = True #ponemos en true todas las filas q caen dentro del periodo de anomalia
+        ini = ev["StartTime"].floor(paso)
+        fin = ev["EndTime"].floor(paso)
+        datos.loc[ini:fin, col] = True
 
 cols_etiq = [c for c in datos.columns if c.startswith("etiq_")]
-datos["anomalia"] = datos[cols_etiq].any(axis=1) #hacemos la col anomalias en tiempo t p cualq canal del subs 5 q esta fallando (true) o no (false)
+datos["anomalia"] = datos[cols_etiq].any(axis=1)  # bandera global de anomalia en el subsistema 5
 
-#agrupar eventos x ID y armar resumen de eventos
+# agrupamos por ID p consolidar el catalogo de eventos de falla
 resumen = (eventos.groupby("ID")
            .agg(StartTime=("StartTime", "min"), EndTime=("EndTime", "max"),
                 Category=("Category", "first"),
@@ -102,15 +105,15 @@ resumen["duracion_h"] = ((resumen["EndTime"] - resumen["StartTime"]).dt.total_se
 
 print(f"{len(resumen)} eventos afectan a los canales 41-46 en 2004-2005:")
 print(resumen.to_string())
-print(f"Instantes etiquetados: {datos['anomalia'].sum():,} "f"({datos['anomalia'].mean()*100:.2f}% del total)")
+print(f"Instantes etiquetados como anomalos: {datos['anomalia'].sum():,} ({datos['anomalia'].mean()*100:.2f}% del total)")
 
 ruta_eventos = os.path.join(DIR_SALIDA, "eventos_2004_2005.csv")
 resumen.to_csv(ruta_eventos)
 
-# 5) PARTICION CRONOLOGICA
+# 5) particion cronologica de conjuntos (train, val y test)
 datos["conjunto"] = "test"
 datos.loc[datos.index < fecha_fin_validacion, "conjunto"] = "val"
-datos.loc[datos.index < fecha_fin_train   , "conjunto"] = "train"
+datos.loc[datos.index < fecha_fin_train, "conjunto"] = "train"
 
 print("\n=== 5) Particion ===")
 for nombre in ["train", "val", "test"]:
@@ -119,18 +122,18 @@ for nombre in ["train", "val", "test"]:
           f"{len(parte):>7,} instantes | anomalos: {parte['anomalia'].sum():>5,} | "
           f"huecos: {parte['hueco'].sum():>6,}")
 
-# 6) GRAFICOS DE VERIFICACION
-print("\n=== 6) Generando graficos de verificacion ===")
-COLOR_CAT = {"Anomaly": "red", "Rare Event": "orange"}
+# 6) graficos de verificacion visual (panorama temporal)
+color_cat = {"Anomaly": "red", "Rare Event": "orange"}
 
-def sombrear_eventos(ax, desde=None, hasta=None):
+def sombrear_eventos(ax_grafico, desde=None, hasta=None):
+    # sombrea las regiones temporales donde ocurrieron fallas documentadas
     for _, ev in resumen.iterrows():
         if desde is not None and (ev["EndTime"] < desde or ev["StartTime"] > hasta):
             continue
-        ax.axvspan(ev["StartTime"], ev["EndTime"],
-                   color=COLOR_CAT.get(ev["Category"], "gray"), alpha=0.35, lw=0)
+        ax_grafico.axvspan(ev["StartTime"], ev["EndTime"],
+                           color=color_cat.get(ev["Category"], "gray"), alpha=0.35, lw=0)
 
-# Figura 1: Panorama general de los 2 anios (promedio por hora para optimizar render)
+# promedio horario p optimizar velocidad de graficacion
 horario = datos[canales].resample("1h").mean()
 fig, axes = plt.subplots(len(canales), 1, figsize=(15, 13), sharex=True)
 for ax, c in zip(axes, canales):
@@ -140,34 +143,14 @@ for ax, c in zip(axes, canales):
     ax.axvline(pd.Timestamp(fecha_fin_validacion), color="purple", ls="--", lw=1.2)
     ax.set_ylabel(c.replace("channel_", "ch"), rotation=0, labelpad=20)
     ax.grid(alpha=0.3)
-axes[0].set_title("Canales 41-46 + 1 (prom. horario) | rojo=Anomaly, naranja=Rare Event | ""verde=fin Train, violeta=fin Val")
+axes[0].set_title("Canales 41-46 + 1 (prom. horario) | rojo=Anomaly, naranja=Rare Event | verde=fin Train, violeta=fin Val")
 plt.tight_layout()
 ruta_fig1 = os.path.join(DIR_SALIDA, "fig1_panorama.png")
 plt.savefig(ruta_fig1, dpi=120)
-plt.show()
 print(f"Guardado: {ruta_fig1}")
+plt.show()
 
-# Figura 2: Zoom a resolucion real (90 s) sobre anomalia del test (id_96)
-ev = resumen.loc["id_96"]
-desde = ev["StartTime"] - pd.Timedelta("2D")
-hasta = ev["EndTime"] + pd.Timedelta("2D")
-tramo = datos.loc[desde:hasta]
-fig, axes = plt.subplots(len(canales), 1, figsize=(15, 12), sharex=True)
-for ax, c in zip(axes, canales):
-    ax.plot(tramo.index, tramo[c], lw=0.6, color="tab:blue")
-    sombrear_eventos(ax, desde, hasta)
-    ax.set_ylabel(c.replace("channel_", "ch"), rotation=0, labelpad=20)
-    ax.grid(alpha=0.3)
-axes[0].set_title(f"Zoom evento id_96 ({ev['Category']}) a resolucion de 90 s")
-plt.tight_layout()
-ruta_fig2 = os.path.join(DIR_SALIDA, "fig2_zoom_evento.png")
-plt.savefig(ruta_fig2, dpi=120)
-plt.close(fig)
-print(f"Guardado: {ruta_fig2}")
-
-# 7) GUARDADO DE DATOS PROCESADOS
-#lo guardamos como pickle q serian los datos en binario para mayor velocidad de toma de datos
-#en los siguientes analisis q hagamos
+# 7) guardado de datos procesados y resumen de eventos
 ruta_pkl = os.path.join(DIR_SALIDA, "datos_alineados.pkl")
 datos.to_pickle(ruta_pkl)
 print(f"\n=== 7) Guardado final exitoso ===")
