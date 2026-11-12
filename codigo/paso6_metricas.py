@@ -1,22 +1,3 @@
-"""
-TP Final - Etapa 6: Evaluacion experimental contra Ground Truth y metricas.
-
-Que hace este script (programado a mano en NumPy):
-  1. Carga las alarmas y errores suavizados de la Etapa 5 (ewma_test.pkl).
-  2. Calcula a mano la Matriz de Confusion (TP, FP, TN, FN) y las metricas:
-     Precision, Sensibilidad (Recall) y F1-Score.
-  3. Compara el desempeno SIN filtro EWMA (error crudo) vs. CON filtro EWMA.
-  4. Evalua la deteccion evento por evento contra labels.csv (Anomalies y Rare Events).
-  5. Analiza como varian Precision, Sensibilidad y F1 al mover el factor k del umbral.
-  6. Genera los graficos finales de resultados para el informe y la defensa.
-
-Salidas (TP Final/datos_procesados/metricas/):
-  - metricas_resumen.json          TP, FP, TN, FN, Precision, Recall, F1
-  - deteccion_por_evento.csv       tabla de cobertura de los 14 eventos de Test
-  - fig11_matriz_confusion_y_metricas.png
-  - fig12_curva_umbral_k.png
-  - fig13_panel_sincronizado_resultados.png
-"""
 
 import os
 import json
@@ -25,9 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ---------------------------------------------------------------------------
-# 0) CONFIGURACION
-# ---------------------------------------------------------------------------
+
 DIR_CODIGO = os.path.dirname(os.path.abspath(__file__))
 DIR_TP = os.path.dirname(DIR_CODIGO)
 DIR_DATOS = os.path.join(DIR_TP, "datos_procesados")
@@ -37,9 +16,6 @@ DIR_SALIDA = os.path.join(DIR_DATOS, "metricas")
 os.makedirs(DIR_SALIDA, exist_ok=True)
 
 
-# ---------------------------------------------------------------------------
-# 1) CARGA DE DATOS Y PARAMETROS DE LA ETAPA 5
-# ---------------------------------------------------------------------------
 test = pd.read_pickle(os.path.join(DIR_EWMA, "ewma_test.pkl"))
 with open(os.path.join(DIR_EWMA, "config_ewma.json")) as f:
     cfg_ewma = json.load(f)
@@ -56,24 +32,15 @@ alpha = cfg_ewma["alpha"]
 print(f"Evaluando Test: {len(test):,} instantes | Umbral = {umbral:.4f} (k = {k_opt})")
 
 
-# ---------------------------------------------------------------------------
-# 2) MATRIZ DE CONFUSION Y METRICAS A MANO EN NUMPY
-# ---------------------------------------------------------------------------
-def calcular_metricas(y_real, y_pred):
-    """Calcula TP, FP, TN, FN, Precision, Sensibilidad (Recall) y F1-Score.
 
-    Formulas (Paso 6 de la Propuesta):
-      - Precision = TP / (TP + FP)          -> confiabilidad de las alarmas
-      - Sensibilidad (Recall) = TP / (TP + FN) -> cobertura de fallas reales
-      - F1-Score = 2 * Precision * Recall / (Precision + Recall)
-    """
+def calcular_metricas(y_real, y_pred):
     y_real = np.asarray(y_real, dtype=np.int8)
     y_pred = np.asarray(y_pred, dtype=np.int8)
 
-    tp = int(np.sum((y_real == 1) & (y_pred == 1)))   # Verdadero Positivo: falla detectada
-    fp = int(np.sum((y_real == 0) & (y_pred == 1)))   # Falso Positivo: falsa alarma
-    tn = int(np.sum((y_real == 0) & (y_pred == 0)))   # Verdadero Negativo: normal bien clasificado
-    fn = int(np.sum((y_real == 1) & (y_pred == 0)))   # Falso Negativo: falla no detectada
+    tp = int(np.sum((y_real == 1) & (y_pred == 1)))
+    fp = int(np.sum((y_real == 0) & (y_pred == 1)))
+    tn = int(np.sum((y_real == 0) & (y_pred == 0)))
+    fn = int(np.sum((y_real == 1) & (y_pred == 0)))
 
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     sensibilidad = tp / (tp + fn) if (tp + fn) > 0 else 0.0
@@ -88,23 +55,24 @@ def calcular_metricas(y_real, y_pred):
     }
 
 
-# Verdad terreno (Ground Truth de labels.csv): 1 si hay anomalia, 0 si es normal
+# verdad terreno : 1 si hay anomalia, 0 si es normal
 y_real = test["anomalia"].values.astype(np.int8)
 
-# Alarmas SIN filtro EWMA (aplicando el mismo umbral al error crudo) vs CON EWMA
+# alarmas sin filtro ewma vs con ewma
 alarma_cruda = (test["err_medio"].values > umbral).astype(np.int8)
 alarma_ewma = test["alarma"].values.astype(np.int8)
 
 met_crudo = calcular_metricas(y_real, alarma_cruda)
 met_ewma = calcular_metricas(y_real, alarma_ewma)
 
-# Cargamos las metricas del modelo comparativo MLP (generadas por paso_mlp.py)
+# metricas del modelo comparativo MLP 
+test_mlp = pd.read_pickle(os.path.join(DIR_MLP, "mlp_test.pkl"))
 with open(os.path.join(DIR_MLP, "metricas_mlp.json")) as f:
     resumen_mlp = json.load(f)
 met_mlp_crudo = resumen_mlp["mlp_sin_ewma"]
 met_mlp_ewma = resumen_mlp["mlp_con_ewma"]
 
-print("\n=== 2) Matriz de Confusion y Metricas: MLP vs. LSTM (Instante por Instante) ===")
+print("\n   matriz de confusion y metricas: MLP vs. LSTM (Instante por Instante) ")
 print(f"{'Modelo / Metodo':<20} | {'TP':>6} | {'FP':>6} | {'TN':>7} | {'FN':>5} | "
       f"{'Precision':>9} | {'Sensibil.':>9} | {'F1-Score':>8}")
 print("-" * 88)
@@ -119,28 +87,30 @@ for nombre, m in comparativa:
           f"{m['precision']*100:>8.2f}% | {m['sensibilidad']*100:>8.2f}% | {m['f1']*100:>7.2f}%")
 
 
-# ---------------------------------------------------------------------------
-# 3) EVALUACION EVENTO POR EVENTO (COBERTURA DE ANOMALIAS)
-# ---------------------------------------------------------------------------
-# En operaciones satelitales importa saber si cada evento documentado por la ESA
-# disparo la alarma mientras ocurria.
+
+# en operaciones satelitales importa saber si cada evento documentado por la ESA
+# disparo la alarma mientras ocurria (comparamos MLP vs LSTM)
 filas_ev = []
 for ev_id, ev in eventos.iterrows():
-    tramo = test.loc[ev["StartTime"]:ev["EndTime"]]
-    if len(tramo) == 0:          # id_93 cae en Train
+    tramo_lstm = test.loc[ev["StartTime"]:ev["EndTime"]]
+    tramo_mlp = test_mlp.loc[ev["StartTime"]:ev["EndTime"]]
+    if len(tramo_lstm) == 0:          # id_93 cae en Train
         continue
-    n_inst = len(tramo)
-    n_alarmas = int(tramo["alarma"].sum())
-    detectado = n_alarmas > 0
+    n_inst = len(tramo_lstm)
+    n_al_mlp = int(tramo_mlp["alarma"].sum())
+    n_al_lstm = int(tramo_lstm["alarma"].sum())
     filas_ev.append({
         "ID": ev_id,
         "Category": ev["Category"],
         "inicio": str(ev["StartTime"].date()),
         "duracion_h": ev["duracion_h"],
         "instantes": n_inst,
-        "inst_en_alarma": n_alarmas,
-        "cobertura_%": round(n_alarmas / n_inst * 100, 1),
-        "detectado": "SI" if detectado else "NO",
+        "inst_mlp": n_al_mlp,
+        "cob_mlp_%": round(n_al_mlp / n_inst * 100, 1),
+        "det_mlp": "SI" if n_al_mlp > 0 else "NO",
+        "inst_lstm": n_al_lstm,
+        "cob_lstm_%": round(n_al_lstm / n_inst * 100, 1),
+        "det_lstm": "SI" if n_al_lstm > 0 else "NO",
     })
 
 tabla_ev = pd.DataFrame(filas_ev).set_index("ID")
@@ -148,21 +118,19 @@ tabla_ev.to_csv(os.path.join(DIR_SALIDA, "deteccion_por_evento.csv"))
 
 anom_df = tabla_ev[tabla_ev["Category"] == "Anomaly"]
 rare_df = tabla_ev[tabla_ev["Category"] == "Rare Event"]
-n_anom_det = (anom_df["detectado"] == "SI").sum()
-n_rare_det = (rare_df["detectado"] == "SI").sum()
+n_anom_det = (anom_df["det_lstm"] == "SI").sum()
+n_rare_det = (rare_df["det_lstm"] == "SI").sum()
+n_anom_mlp = (anom_df["det_mlp"] == "SI").sum()
+n_rare_mlp = (rare_df["det_mlp"] == "SI").sum()
 
-print("\n=== 3) Cobertura por Evento (Ground Truth ESA) ===")
+print("\n    cobertura por evento (MLP vs LSTM)    ")
 print(tabla_ev.to_string())
-print(f"\nResumen de eventos detectados:")
-print(f"  - Anomalias reales (Category = Anomaly): {n_anom_det}/{len(anom_df)} "
-      f"({n_anom_det/len(anom_df)*100:.0f}% detectadas)")
-print(f"  - Eventos raros    (Category = Rare Event): {n_rare_det}/{len(rare_df)} "
-      f"({n_rare_det/len(rare_df)*100:.1f}% detectados)")
+print(f"\n resumen de eventos detectados:")
+print(f"  - anomalias reales (Anomaly):    MLP = {n_anom_mlp}/{len(anom_df)} | LSTM = {n_anom_det}/{len(anom_df)}")
+print(f"  - eventos raros    (Rare Event): MLP = {n_rare_mlp}/{len(rare_df)} | LSTM = {n_rare_det}/{len(rare_df)}")
 
 
-# ---------------------------------------------------------------------------
-# 4) ANALISIS DE SENSIBILIDAD DEL COEFICIENTE k DEL UMBRAL
-# ---------------------------------------------------------------------------
+
 valores_k = np.linspace(1.5, 5.5, 17)
 curva_k = []
 for k in valores_k:
@@ -175,13 +143,10 @@ for k in valores_k:
 df_k = pd.DataFrame(curva_k)
 
 
-# ---------------------------------------------------------------------------
-# 5) GRAFICOS DE RESULTADOS
-# ---------------------------------------------------------------------------
 
-# --- Figura 11: Matrices de Confusion (MLP vs LSTM) + Comparacion de Metricas
+
 def dibujar_matriz_confusion(ax, met, titulo, cmap="Blues"):
-    """Dibuja una matriz de confusion 2x2 con conteos y porcentajes."""
+   
     matriz_c = np.array([
         [met["TN"], met["FP"]],
         [met["FN"], met["TP"]],
@@ -243,7 +208,7 @@ plt.tight_layout()
 plt.savefig(os.path.join(DIR_SALIDA, "fig11_matriz_confusion_y_metricas.png"), dpi=120)
 
 
-# --- Figura 12: Curvas de Precision, Sensibilidad y F1 en funcion de k
+
 plt.figure(figsize=(8.5, 4.5))
 plt.plot(df_k["k"], df_k["precision"] * 100, "o-", label="Precision", color="tab:blue")
 plt.plot(df_k["k"], df_k["sensibilidad"] * 100, "s-", label="Sensibilidad (Recall)", color="tab:orange")
@@ -259,10 +224,81 @@ plt.tight_layout()
 plt.savefig(os.path.join(DIR_SALIDA, "fig12_curva_umbral_k.png"), dpi=120)
 
 
-# --- Figura 13: Panel sincronizado de resultados (Propuesta Paso 6, punto 4)
-# Mostramos lado a lado dos anomalias reales de distinta naturaleza:
-#   Columna izquierda: id_96 (anomalia sutil dentro del rango normal)
-#   Columna derecha:   id_101 (anomalia severa por caida abrupta de senal)
+# --- Figura EWMA segun variacion de alpha (impacto en senal y en metricas)
+def filtrar_ewma_rapido(e, a):
+    e = np.asarray(e, dtype=np.float64)
+    s = np.empty_like(e)
+    s[0] = e[0]
+    inercia = 1.0 - a
+    for t in range(1, len(e)):
+        s[t] = a * e[t] + inercia * s[t - 1]
+    return s.astype(np.float32)
+
+
+valores_alpha = [0.01, 0.03, 0.05, 0.10, 0.20, 0.35, 0.50, 0.75, 1.00]
+err_crudo_lstm = test["err_medio"].values
+err_crudo_mlp = test_mlp["err_medio"].values
+
+curva_alpha_lstm = []
+curva_alpha_mlp = []
+for a in valores_alpha:
+    s_l = filtrar_ewma_rapido(err_crudo_lstm, a) if a < 1.0 else err_crudo_lstm
+    s_m = filtrar_ewma_rapido(err_crudo_mlp, a) if a < 1.0 else err_crudo_mlp
+    m_l = calcular_metricas(y_real, (s_l > umbral).astype(np.int8))
+    m_m = calcular_metricas(y_real, (s_m > umbral).astype(np.int8))
+    m_l["alpha"] = a
+    m_m["alpha"] = a
+    curva_alpha_lstm.append(m_l)
+    curva_alpha_mlp.append(m_m)
+
+df_a_lstm = pd.DataFrame(curva_alpha_lstm)
+df_a_mlp = pd.DataFrame(curva_alpha_mlp)
+
+fig, (ax_sig, ax_met) = plt.subplots(1, 2, figsize=(15.5, 5.0))
+
+# Panel A: efecto de distintos valores de alpha sobre el tramo del evento id_96
+ev96 = eventos.loc["id_96"]
+desde96 = ev96["StartTime"] - pd.Timedelta("12h")
+hasta96 = ev96["EndTime"] + pd.Timedelta("12h")
+tramo96 = test.loc[desde96:hasta96]
+err_tramo = tramo96["err_medio"].values
+
+ax_sig.plot(tramo96.index, err_tramo, lw=0.6, color="lightsteelblue", alpha=0.8,
+            label="Sin filtro ($\\alpha = 1.00$, error crudo)")
+ax_sig.plot(tramo96.index, filtrar_ewma_rapido(err_tramo, 0.25), lw=1.1,
+            color="darkorange", alpha=0.85, label="Suavizado leve ($\\alpha = 0.25$)")
+ax_sig.plot(tramo96.index, filtrar_ewma_rapido(err_tramo, 0.05), lw=1.8,
+            color="navy", label="Suavizado elegido ($\\alpha = 0.05$)")
+ax_sig.axhline(umbral, color="green", ls="--", lw=1.4, label=f"Umbral = {umbral:.3f}")
+ax_sig.axvspan(ev96["StartTime"], ev96["EndTime"], color="red", alpha=0.20, label="Anomalia real (id_96)")
+ax_sig.set_title("A) Efecto de $\\alpha$ sobre el error residual (evento id_96)", fontweight="bold")
+ax_sig.set_ylabel("Error residual / EWMA $s_t$")
+ax_sig.set_xlabel("Tiempo")
+ax_sig.legend(loc="upper left", fontsize=8.5)
+ax_sig.grid(alpha=0.3)
+ax_sig.tick_params(axis="x", rotation=15)
+
+# Panel B: evolucion de Precision, Sensibilidad y F1-Score al variar alpha
+ax_met.plot(df_a_lstm["alpha"], df_a_lstm["precision"] * 100, "o-", color="royalblue", label="Precision (LSTM)")
+ax_met.plot(df_a_lstm["alpha"], df_a_lstm["sensibilidad"] * 100, "s--", color="steelblue", alpha=0.75, label="Sensibilidad (LSTM)")
+ax_met.plot(df_a_lstm["alpha"], df_a_lstm["f1"] * 100, "D-", lw=2.2, color="navy", label="F1-Score (LSTM)")
+
+ax_met.plot(df_a_mlp["alpha"], df_a_mlp["precision"] * 100, "o-", color="sandybrown", label="Precision (MLP)")
+ax_met.plot(df_a_mlp["alpha"], df_a_mlp["f1"] * 100, "D-", lw=2.0, color="darkorange", label="F1-Score (MLP)")
+
+ax_met.axvline(alpha, color="crimson", ls="--", lw=1.5, label=f"$\\alpha$ elegido = {alpha}")
+ax_met.set_title("B) Desempeno en Test al variar el factor de suavizado $\\alpha$", fontweight="bold")
+ax_met.set_xlabel("Factor de suavizado EWMA $\\alpha$ ($1.0$ = sin filtro)")
+ax_met.set_ylabel("Porcentaje (%)")
+ax_met.set_ylim(10, 103)
+ax_met.grid(alpha=0.3)
+ax_met.legend(loc="center right", fontsize=8.5, ncol=2)
+
+plt.tight_layout()
+plt.savefig(os.path.join(DIR_SALIDA, "fig_ewma_variacion_alpha.png"), dpi=120)
+
+
+
 fig, axes = plt.subplots(3, 2, figsize=(15, 8.5), sharex="col",
                          gridspec_kw={"height_ratios": [2, 2, 1]})
 
@@ -276,7 +312,7 @@ for col, (ev_id, titulo) in enumerate(casos):
     hasta = ev["EndTime"] + pd.Timedelta("10h")
     tramo = test.loc[desde:hasta]
 
-    # 1) Serie temporal real vs prediccion LSTM (canal 41)
+    # serie temporal real vs prediccion LSTM (canal 41)
     axes[0, col].plot(tramo.index, tramo["real_41"], lw=0.8, color="tab:blue", label="Real (ch41)")
     axes[0, col].plot(tramo.index, tramo["pred_41"], lw=0.8, color="tab:orange", label="Prediccion LSTM")
     axes[0, col].axvspan(ev["StartTime"], ev["EndTime"], color="red", alpha=0.22, label="Ground Truth ESA")
@@ -285,7 +321,7 @@ for col, (ev_id, titulo) in enumerate(casos):
     axes[0, col].legend(loc="upper left", fontsize=8)
     axes[0, col].grid(alpha=0.3)
 
-    # 2) Curva de error residual suavizado (EWMA) cruzando el umbral
+    # curva de error residual suavizado (ewma) cruzando el umbral
     axes[1, col].plot(tramo.index, tramo["ewma_medio"], lw=1.4, color="black", label="Error EWMA $s_t$")
     axes[1, col].axhline(umbral, color="green", ls="--", lw=1.3, label=f"Umbral = {umbral:.3f}")
     axes[1, col].axvspan(ev["StartTime"], ev["EndTime"], color="red", alpha=0.22)
@@ -293,11 +329,11 @@ for col, (ev_id, titulo) in enumerate(casos):
     axes[1, col].legend(loc="upper left", fontsize=8)
     axes[1, col].grid(alpha=0.3)
 
-    # 3) Bandera de alarma del modelo vs Ground Truth
+    # bandera de alarma del modelo vs ground truth
     axes[2, col].fill_between(tramo.index, 0, tramo["anomalia"].astype(int),
                               step="post", color="red", alpha=0.3, label="Anomalia Real (ESA)")
     axes[2, col].step(tramo.index, tramo["alarma"], where="post",
-                      color="crimson", lw=1.4, label="Alarma Modelo ($\\hat{C}_t$)")
+                      color="crimson", lw=1.4, label="Alarma Modelo")
     axes[2, col].set_yticks([0, 1])
     axes[2, col].set_yticklabels(["Normal", "Alarma"])
     axes[2, col].set_ylim(-0.1, 1.15)
@@ -309,9 +345,7 @@ plt.tight_layout()
 plt.savefig(os.path.join(DIR_SALIDA, "fig13_panel_sincronizado_resultados.png"), dpi=120)
 
 
-# ---------------------------------------------------------------------------
-# 6) GUARDADO DEL RESUMEN DE METRICAS
-# ---------------------------------------------------------------------------
+
 resumen_json = {
     "mlp_sin_ewma": met_mlp_crudo,
     "mlp_con_ewma": met_mlp_ewma,
